@@ -1,0 +1,11 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: SNS
+    receivers:
+      - uid: sns-server-room
+        type: sns
+        settings:
+          topic_arn: arn:aws:sns:us-east-1:132502993836:grafana-sns
+        disableResolveMessage: false

@@ -1,0 +1,33 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECR repository for Grafana (IoT Monitoring)
+
+Resources:
+  GrafanaECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: iot-grafana
+      ImageScanningConfiguration:
+        ScanOnPush: false
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep last 3 images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 3
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+
+Outputs:
+  GrafanaEcrUri:
+    Description: Grafana ECR Repository URI
+    Value: !GetAtt GrafanaECR.RepositoryUri

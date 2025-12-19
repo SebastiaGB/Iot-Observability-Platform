@@ -1,0 +1,61 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Lambda para inicializar la DB con la tabla sensor_data
+
+Parameters:
+  DBHost:
+    Type: String
+  DBUser:
+    Type: String
+  DBPassword:
+    Type: String
+    NoEcho: true
+  DBName:
+    Type: String
+  LambdaSG:
+    Type: AWS::EC2::SecurityGroup::Id
+  PrivateSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+
+Resources:
+  InitDBLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: init-db-lambda-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+        - arn:aws:iam::aws:policy/AmazonRDSFullAccess
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+
+  InitDBLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: init_sensor_db
+      Runtime: python3.10
+      Handler: lambda_handler.lambda_handler
+      Role: !GetAtt InitDBLambdaRole.Arn
+      Timeout: 30
+      MemorySize: 128
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSG
+        SubnetIds: !Ref PrivateSubnets
+      Environment:
+        Variables:
+          DB_HOST: !Ref DBHost
+          DB_USER: !Ref DBUser
+          DB_PASS: !Ref DBPassword
+          DB_NAME: !Ref DBName
+      Code:
+        S3Bucket: lambda-zip-bucket-iot         # <- aquí tu bucket S3
+        S3Key: lambda-package.zip         # <- tu zip con psycopg2 y lambda_handler.py
+
+Outputs:
+  InitDBLambdaArn:
+    Value: !GetAtt InitDBLambda.Arn

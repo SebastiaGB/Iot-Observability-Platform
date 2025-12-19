@@ -1,0 +1,10 @@
+apiVersion: 1
+
+providers:
+  - name: 'Sensor Dashboards'
+    folder: 'Server Room'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards

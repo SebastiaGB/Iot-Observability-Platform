@@ -1,0 +1,158 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECS Cluster + Tasks + IAM Roles + LogGroups for IoT Gateway & Grafana
+
+Parameters:
+  EcrImageUri:
+    Type: String
+  GrafanaEcrUri:
+    Type: String
+  ApiEndpoint:
+    Type: String
+
+Resources:
+  ############################
+  # CloudWatch Log Groups
+  ############################
+  IotGatewayLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/iot-gateway
+      RetentionInDays: 14
+
+  GrafanaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/grafana
+      RetentionInDays: 14
+
+  ############################
+  # ECS Cluster
+  ############################
+  IotEcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: iot-cluster
+
+  ############################
+  # IAM Role for ECS Task Execution
+  ############################
+  EcsTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: iot-task-exec-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  ############################
+  # IAM Role for Grafana Task (SNS)
+  ############################
+  GrafanaTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: grafana-task-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: GrafanaSNSPublish
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource:
+                  - arn:aws:sns:us-east-1:132502993836:grafana-sns
+
+  ############################
+  # ECS Task Definition Gateway
+  ############################
+  GatewayIotDef:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: gatewayiotdef
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc
+      Cpu: '512'
+      Memory: '1024'
+      ExecutionRoleArn: !GetAtt EcsTaskExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: gatewayiotdef
+          Image: !Ref EcrImageUri
+          Essential: true
+          PortMappings:
+            - ContainerPort: 80
+              Protocol: tcp
+          Environment:
+            - Name: API_URL
+              Value: !Ref ApiEndpoint
+            - Name: INTERVAL
+              Value: "30"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref IotGatewayLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: gatewayiot
+
+  ############################
+  # ECS Task Definition Grafana
+  ############################
+  GrafanaTaskDef:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: grafana-task
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc
+      Cpu: '512'
+      Memory: '1024'
+      ExecutionRoleArn: !GetAtt EcsTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt GrafanaTaskRole.Arn   # 👈 CLAVE PARA SNS
+      ContainerDefinitions:
+        - Name: grafana
+          Image: !Ref GrafanaEcrUri
+          Essential: true
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+          Environment:
+            - Name: GF_SECURITY_ADMIN_USER
+              Value: admin
+            - Name: GF_SECURITY_ADMIN_PASSWORD
+              Value: admin123
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref GrafanaLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: grafana
+
+Outputs:
+  ClusterName:
+    Description: ECS Cluster name
+    Value: !Ref IotEcsCluster
+
+  ClusterArn:
+    Description: ECS Cluster ARN
+    Value: !GetAtt IotEcsCluster.Arn
+
+  GatewayTaskDefinitionArn:
+    Description: Gateway Task Definition ARN
+    Value: !Ref GatewayIotDef
+
+  GrafanaTaskDefinitionArn:
+    Description: Grafana Task Definition ARN
+    Value: !Ref GrafanaTaskDef

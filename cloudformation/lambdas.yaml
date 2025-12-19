@@ -1,0 +1,152 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Lambdas for IoT pipeline with synchronous invocation of process_payload
+
+Parameters:
+  PrivateAppSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Default: "subnet-09c11137f2fa6240e,subnet-085ccc21b628268b0"
+
+  LambdaSG:
+    Type: AWS::EC2::SecurityGroup::Id
+    Default: sg-01dea72543a995261
+
+  DBHost:
+    Type: String
+
+  DBPassword:
+    Type: String
+    NoEcho: true
+
+Resources:
+  ############################
+  # IAM Managed Policies
+  ############################
+
+  DecodeLambdaPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - lambda:InvokeFunction
+            Resource: "*"  # necesario para invocación síncrona de process_payload
+
+  ProcessLambdaPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - ec2:CreateNetworkInterface
+              - ec2:DescribeNetworkInterfaces
+              - ec2:DeleteNetworkInterface
+            Resource: "*"
+
+  ############################
+  # IAM Roles
+  ############################
+
+  DecodeLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: decode-payload-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref DecodeLambdaPolicy
+
+  ProcessLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: process-payload-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref ProcessLambdaPolicy
+
+  ############################
+  # Lambdas
+  ############################
+
+  ProcessPayloadLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: process_payload
+      Runtime: python3.10
+      Handler: lambda_handler.lambda_handler
+      Role: !GetAtt ProcessLambdaRole.Arn
+      Timeout: 15
+      MemorySize: 512
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSG
+        SubnetIds: !Ref PrivateAppSubnets
+      Environment:
+        Variables:
+          DB_HOST: !Ref DBHost
+          DB_NAME: iotrds
+          DB_USER: iotadmin
+          DB_PASS: !Ref DBPassword
+      Code:
+        S3Bucket: lambda-zip-bucket-iot
+        S3Key: process_payload.zip
+
+  DecodePayloadLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: decode_payload
+      Runtime: python3.10
+      Handler: lambda_handler.lambda_handler
+      Role: !GetAtt DecodeLambdaRole.Arn
+      Timeout: 10
+      MemorySize: 512
+      Code:
+        S3Bucket: lambda-zip-bucket-iot
+        S3Key: decode_payload.zip
+      Environment:
+        Variables:
+          PROCESS_LAMBDA_ARN: !GetAtt ProcessPayloadLambda.Arn
+
+  ############################
+  # Permiso Lambda → Lambda
+  ############################
+
+  DecodePayloadInvokeProcessPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt ProcessPayloadLambda.Arn
+      Principal: lambda.amazonaws.com
+
+Outputs:
+  DecodeLambdaArn:
+    Value: !GetAtt DecodePayloadLambda.Arn
+
+  ProcessLambdaArn:
+    Value: !GetAtt ProcessPayloadLambda.Arn

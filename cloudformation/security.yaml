@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Security Groups for IoT architecture (IoT Demo)
+
+Parameters:
+  VpcId:
+    Type: String
+    Default: vpc-03fe96ccf12778ad0
+
+Resources:
+  ###################################
+  # Lambda Security Group
+  ###################################
+  LambdaSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: lambda-sg
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  ###################################
+  # ALB Security Group (NEW)
+  ###################################
+  AlbSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: grafana-alb-sg
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0   # Acceso público HTTP
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  ###################################
+  # Grafana Security Group (MODIFIED)
+  ###################################
+  GrafanaSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: grafana-sg
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref AlbSG   # SOLO desde ALB
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  ###################################
+  # RDS Security Group
+  ###################################
+  RDSSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: rds-sg
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        # Acceso desde Lambda
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref LambdaSG
+        # Acceso desde Grafana
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref GrafanaSG
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  ###################################
+  # Gateway IoT Security Group
+  ###################################
+  GatewayIotSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: gateway-iot-sg
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 1883
+          ToPort: 1883
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+Outputs:
+  GrafanaSG:
+    Description: Grafana Security Group ID
+    Value: !Ref GrafanaSG
+
+  AlbSG:
+    Description: ALB Security Group ID
+    Value: !Ref AlbSG
+
+  GatewayIotSG:
+    Description: Gateway IoT Security Group ID
+    Value: !Ref GatewayIotSG
+
+  LambdaSG:
+    Description: Lambda Security Group ID
+    Value: !Ref LambdaSG
+
+  RDSSG:
+    Description: RDS Security Group ID
+    Value: !Ref RDSSG

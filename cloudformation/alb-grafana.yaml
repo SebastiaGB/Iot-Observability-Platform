@@ -1,0 +1,68 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ALB + Target Group for Grafana ECS Service
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PublicSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+  AlbSG:
+    Type: AWS::EC2::SecurityGroup::Id
+
+Resources:
+  ############################
+  # Application Load Balancer
+  ############################
+  GrafanaALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: grafana-alb
+      Scheme: internet-facing
+      Type: application
+      Subnets: !Ref PublicSubnets
+      SecurityGroups:
+        - !Ref AlbSG
+
+  ############################
+  # Target Group
+  ############################
+  GrafanaTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: grafana-tg
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 3000
+      TargetType: ip
+      HealthCheckPath: /api/health
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: 200-399
+
+  ############################
+  # Listener
+  ############################
+  GrafanaListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref GrafanaALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref GrafanaTargetGroup
+
+Outputs:
+  AlbArn:
+    Description: Grafana ALB ARN
+    Value: !Ref GrafanaALB
+
+  AlbDnsName:
+    Description: Grafana ALB DNS
+    Value: !GetAtt GrafanaALB.DNSName
+
+  TargetGroupArn:
+    Description: Grafana Target Group ARN
+    Value: !Ref GrafanaTargetGroup

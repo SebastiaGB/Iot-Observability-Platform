@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: RDS PostgreSQL for IoT demo
+
+Parameters:
+  VpcId:
+    Type: String
+
+  PrivateDbSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Default: "subnet-0e94dc002aa6e0bc3,subnet-0914016fd332e2d09"
+
+  RDSSG:
+    Type: AWS::EC2::SecurityGroup::Id
+    Default: sg-08ab95811ef73ceac
+
+  DBPassword:
+    Type: String
+    NoEcho: true
+
+Resources:
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private DB subnets
+      SubnetIds: !Ref PrivateDbSubnets
+
+  IoTRDS:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: postgres
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: 20
+      DBName: iotrds
+      MasterUsername: iotadmin
+      MasterUserPassword: !Ref DBPassword
+      VPCSecurityGroups:
+        - !Ref RDSSG
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      PubliclyAccessible: false
+      BackupRetentionPeriod: 0
+      DeletionProtection: false
+
+Outputs:
+  DBEndpoint:
+    Description: RDS Endpoint
+    Value: !GetAtt IoTRDS.Endpoint.Address

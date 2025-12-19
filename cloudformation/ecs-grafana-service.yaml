@@ -1,0 +1,77 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECS Service for Grafana (Fargate behind ALB, private subnets)
+
+Parameters:
+  ClusterArn:
+    Type: String
+    Description: ECS Cluster ARN
+
+  TaskDefinitionArn:
+    Type: String
+    Description: Grafana Task Definition ARN
+
+  PrivateAppSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Private subnets for Grafana ECS tasks
+
+  GrafanaSG:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security Group for Grafana ECS tasks
+
+  TargetGroupArn:
+    Type: String
+    Description: ALB Target Group ARN
+
+Resources:
+  ############################################
+  # ECS Service Grafana
+  ############################################
+  GrafanaService:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - GrafanaServiceRole
+    Properties:
+      ServiceName: grafana-service
+      Cluster: !Ref ClusterArn
+      TaskDefinition: !Ref TaskDefinitionArn
+      DesiredCount: 1
+      LaunchType: FARGATE
+
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets: !Ref PrivateAppSubnets
+          SecurityGroups:
+            - !Ref GrafanaSG
+          AssignPublicIp: DISABLED
+
+      LoadBalancers:
+        - TargetGroupArn: !Ref TargetGroupArn
+          ContainerName: grafana
+          ContainerPort: 3000
+
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+
+  ############################################
+  # IAM Service Role for ECS Service
+  ############################################
+  GrafanaServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: grafana-ecs-service-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # Policy correcta para ejecutar tareas Fargate detrás de ALB
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+Outputs:
+  ServiceName:
+    Description: ECS Service Name
+    Value: !Ref GrafanaService

@@ -1,0 +1,32 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECR repository for IoT Gateway
+
+Resources:
+  IotGatewayECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: iot-gateway
+      ImageScanningConfiguration:
+        ScanOnPush: false
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep last 3 images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 3
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+
+Outputs:
+  EcrRepositoryUri:
+    Value: !GetAtt IotGatewayECR.RepositoryUri

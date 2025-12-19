@@ -1,0 +1,36 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECS Service for IoT Gateway (uses existing Cluster + TaskDefinition)
+
+Parameters:
+  ClusterArn:
+    Type: String
+  TaskDefinitionArn:
+    Type: String
+  PrivateAppSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+  GatewaySG:
+    Type: AWS::EC2::SecurityGroup::Id
+
+Resources:
+  ############################
+  # ECS Service
+  ############################
+  IotGatewayService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: iot-gateway-service
+      Cluster: !Ref ClusterArn
+      TaskDefinition: !Ref TaskDefinitionArn
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets: !Ref PrivateAppSubnets
+          SecurityGroups:
+            - !Ref GatewaySG
+          AssignPublicIp: DISABLED
+
+Outputs:
+  ServiceName:
+    Description: ECS Service Name
+    Value: !Ref IotGatewayService
