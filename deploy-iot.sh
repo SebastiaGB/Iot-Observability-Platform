@@ -17,9 +17,8 @@ echo "🔐 Obteniendo postgres_password desde Secrets Manager..."
 
 DB_PASSWORD=$(aws secretsmanager get-secret-value \
   --secret-id "$POSTGRES_SECRET_NAME" \
-  --query SecretString \
-  --output text \
-  --region "$REGION" | jq -r '.postgres_password')
+  --query 'SecretString' \
+  --output text | sed -n 's/.*"postgres_password":"\([^"]*\)".*/\1/p')
 
 if [[ -z "$DB_PASSWORD" || "$DB_PASSWORD" == "null" ]]; then
   echo "❌ No se pudo obtener postgres_password desde Secrets Manager"

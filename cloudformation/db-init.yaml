@@ -53,7 +53,7 @@ Resources:
           DB_PASS: !Ref DBPassword
           DB_NAME: !Ref DBName
       Code:
-        S3Bucket: BUCKETS3-NAME         # <- aquí tu bucket S3
+        S3Bucket: bucket-name         # <- aquí tu bucket S3
         S3Key: lambda-package.zip         # <- tu zip con psycopg2 y lambda_handler.py
 
 Outputs:
