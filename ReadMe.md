@@ -1,5 +1,9 @@
 # IoT Sensor Gateway & Monitoring Platform
 
+> Este proyecto tiene como objetivo migrar un sistema de monitorización de apartamentos telemáticos 
+> originalmente desarrollado en IBdigital hacia un entorno cloud moderno, utilizando servicios de AWS 
+> como ECS, RDS, Lambda, ECR y API Gateway.
+
 Solución completa para simular sensores IoT, procesar datos en tiempo real, almacenarlos en RDS, y monitorizar el sistema con Prometheus + Grafana, desplegada íntegramente en AWS usando CloudFormation y ECS Fargate.
 
 El proyecto cubre el flujo completo IoT → API → Lambda → Base de datos → Observabilidad, aplicando buenas prácticas de seguridad, secrets management y despliegue reproducible.
@@ -161,3 +165,4 @@ https://<API_GATEWAY_URL>/data
 - Docker  
 
 ---
+
