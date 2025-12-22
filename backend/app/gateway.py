@@ -65,11 +65,11 @@ def simulate_sensor(sensor):
     while True:
         # Generar valor con anomalías
         if sensor_type == "temperature":
-            value = random.uniform(18, 27) if random.random() > 0.05 else random.choice([random.uniform(10, 17.99), random.uniform(27.01, 35)])
+            value = random.uniform(15, 28) if random.random() > 0.1 else random.choice([random.uniform(10, 14.99), random.uniform(28.01, 35)])
         elif sensor_type == "humidity":
-            value = random.uniform(40, 60) if random.random() > 0.05 else random.choice([random.uniform(20, 39.99), random.uniform(60.01, 70)])
+            value = random.uniform(35, 55) if random.random() > 0.1 else random.choice([random.uniform(20, 34.99), random.uniform(55.01, 70)])
         elif sensor_type == "power":
-            value = random.uniform(630, 850) if random.random() > 0.05 else random.uniform(851, 1050)
+            value = random.uniform(3500, 4000) if random.random() > 0.1 else random.uniform(4001, 4600)
         else:
             print(f"[WARN] Unknown sensor type {sensor_type}")
             time.sleep(INTERVAL)

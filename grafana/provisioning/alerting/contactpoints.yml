@@ -7,5 +7,5 @@ contactPoints:
       - uid: sns-server-room
         type: sns
         settings:
-          topic_arn: arn:aws:sns:us-east-1:132502993836:grafana-sns
+          topic_arn: arn:aws:sns:us-east-1:<AWS_ID_ACCOUNT>:grafana-sns
         disableResolveMessage: false

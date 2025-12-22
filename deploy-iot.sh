@@ -1,33 +1,32 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 ############################################
-# 0️⃣ CARGAR ENV
-############################################
-ENV_FILE="./env/iot-db.env"
-
-if [ ! -f "$ENV_FILE" ]; then
-  echo "❌ Archivo $ENV_FILE no encontrado"
-  exit 1
-fi
-
-echo "🔐 Cargando variables desde $ENV_FILE"
-set -a
-source "$ENV_FILE"
-set +a
-
-if [ -z "$DB_PASSWORD" ]; then
-  echo "❌ DB_PASSWORD no está definido en $ENV_FILE"
-  exit 1
-fi
-
-############################################
-# VARIABLES GENERALES
+# CONFIGURACIÓN GENERAL
 ############################################
 REGION=${AWS_REGION:-us-east-1}
 CF_DIR="cloudformation"
+POSTGRES_SECRET_NAME="iot/grafana/credentials"
 
 echo "🚀 Deploy iniciando en región $REGION"
+
+############################################
+# 0️⃣ OBTENER PASSWORD DB DESDE SECRETS MANAGER
+############################################
+echo "🔐 Obteniendo postgres_password desde Secrets Manager..."
+
+DB_PASSWORD=$(aws secretsmanager get-secret-value \
+  --secret-id "$POSTGRES_SECRET_NAME" \
+  --query SecretString \
+  --output text \
+  --region "$REGION" | jq -r '.postgres_password')
+
+if [[ -z "$DB_PASSWORD" || "$DB_PASSWORD" == "null" ]]; then
+  echo "❌ No se pudo obtener postgres_password desde Secrets Manager"
+  exit 1
+fi
+
+echo "✅ DB password cargada correctamente"
 
 ############################################
 # 1️⃣ NETWORK
@@ -35,9 +34,9 @@ echo "🚀 Deploy iniciando en región $REGION"
 echo "🛜 Deploy Network stack..."
 aws cloudformation deploy \
   --stack-name iot-network \
-  --template-file $CF_DIR/network.yaml \
+  --template-file "$CF_DIR/network.yaml" \
   --capabilities CAPABILITY_NAMED_IAM \
-  --region $REGION
+  --region "$REGION"
 
 VPC_ID=$(aws cloudformation describe-stacks \
   --stack-name iot-network \
@@ -65,10 +64,10 @@ PUBLIC_SUBNETS=$(aws cloudformation describe-stacks \
 echo "🔐 Deploy Security Groups..."
 aws cloudformation deploy \
   --stack-name iot-security \
-  --template-file $CF_DIR/security.yaml \
+  --template-file "$CF_DIR/security.yaml" \
   --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides VpcId=$VPC_ID \
-  --region $REGION
+  --parameter-overrides VpcId="$VPC_ID" \
+  --region "$REGION"
 
 LAMBDA_SG=$(aws cloudformation describe-stacks \
   --stack-name iot-security \
@@ -101,14 +100,14 @@ ALB_SG=$(aws cloudformation describe-stacks \
 echo "🗄 Deploy RDS..."
 aws cloudformation deploy \
   --stack-name iot-rds \
-  --template-file $CF_DIR/rds.yaml \
+  --template-file "$CF_DIR/rds.yaml" \
   --parameter-overrides \
-    VpcId=$VPC_ID \
-    PrivateDbSubnets=$PRIVATE_DB_SUBNETS \
-    RDSSG=$RDS_SG \
-    DBPassword=$DB_PASSWORD \
+    VpcId="$VPC_ID" \
+    PrivateDbSubnets="$PRIVATE_DB_SUBNETS" \
+    RDSSG="$RDS_SG" \
+    DBPassword="$DB_PASSWORD" \
   --capabilities CAPABILITY_NAMED_IAM \
-  --region $REGION
+  --region "$REGION"
 
 DB_HOST=$(aws cloudformation describe-stacks \
   --stack-name iot-rds \
@@ -121,20 +120,20 @@ DB_HOST=$(aws cloudformation describe-stacks \
 echo "🗃 Deploy Lambda de inicialización de DB..."
 aws cloudformation deploy \
   --stack-name iot-db-init \
-  --template-file $CF_DIR/db-init.yaml \
+  --template-file "$CF_DIR/db-init.yaml" \
   --parameter-overrides \
-    DBHost=$DB_HOST \
-    DBUser=iotadmin \
-    DBPassword=$DB_PASSWORD \
-    DBName=iotrds \
-    LambdaSG=$LAMBDA_SG \
-    PrivateSubnets=$PRIVATE_DB_SUBNETS \
+    DBHost="$DB_HOST" \
+    DBUser="iotadmin" \
+    DBPassword="$DB_PASSWORD" \
+    DBName="iotrds" \
+    LambdaSG="$LAMBDA_SG" \
+    PrivateSubnets="$PRIVATE_DB_SUBNETS" \
   --capabilities CAPABILITY_NAMED_IAM \
-  --region $REGION
+  --region "$REGION"
 
 aws lambda invoke \
   --function-name init_sensor_db \
-  /tmp/init_db_output.json
+  /tmp/init_db_output.json >/dev/null
 
 ############################################
 # 5️⃣ LAMBDAS
@@ -142,14 +141,14 @@ aws lambda invoke \
 echo "🧠 Deploy Lambdas..."
 aws cloudformation deploy \
   --stack-name iot-lambdas \
-  --template-file $CF_DIR/lambdas.yaml \
+  --template-file "$CF_DIR/lambdas.yaml" \
   --parameter-overrides \
-    PrivateAppSubnets=$PRIVATE_APP_SUBNETS \
-    LambdaSG=$LAMBDA_SG \
-    DBHost=$DB_HOST \
-    DBPassword=$DB_PASSWORD \
+    PrivateAppSubnets="$PRIVATE_APP_SUBNETS" \
+    LambdaSG="$LAMBDA_SG" \
+    DBHost="$DB_HOST" \
+    DBPassword="$DB_PASSWORD" \
   --capabilities CAPABILITY_NAMED_IAM \
-  --region $REGION
+  --region "$REGION"
 
 DECODE_LAMBDA_ARN=$(aws cloudformation describe-stacks \
   --stack-name iot-lambdas \
@@ -162,10 +161,10 @@ DECODE_LAMBDA_ARN=$(aws cloudformation describe-stacks \
 echo "🌐 Deploy API Gateway..."
 aws cloudformation deploy \
   --stack-name iot-api \
-  --template-file $CF_DIR/api-gateway.yaml \
-  --parameter-overrides DecodeLambdaArn=$DECODE_LAMBDA_ARN \
+  --template-file "$CF_DIR/api-gateway.yaml" \
+  --parameter-overrides DecodeLambdaArn="$DECODE_LAMBDA_ARN" \
   --capabilities CAPABILITY_NAMED_IAM \
-  --region $REGION
+  --region "$REGION"
 
 API_ENDPOINT=$(aws cloudformation describe-stacks \
   --stack-name iot-api \
@@ -175,22 +174,21 @@ API_ENDPOINT=$(aws cloudformation describe-stacks \
 ############################################
 # 7️⃣ ECR
 ############################################
-echo "📦 Deploy ECR Gateway..."
+echo "📦 Deploy ECR..."
 aws cloudformation deploy \
   --stack-name iot-ecr \
-  --template-file $CF_DIR/ecr-gateway.yaml \
-  --region $REGION
+  --template-file "$CF_DIR/ecr-gateway.yaml" \
+  --region "$REGION"
 
 ECR_URI=$(aws cloudformation describe-stacks \
   --stack-name iot-ecr \
   --query "Stacks[0].Outputs[?OutputKey=='EcrRepositoryUri'].OutputValue" \
   --output text)
 
-echo "📦 Deploy ECR Grafana..."
 aws cloudformation deploy \
   --stack-name iot-ecr-grafana \
-  --template-file $CF_DIR/ecr-grafana.yaml \
-  --region $REGION
+  --template-file "$CF_DIR/ecr-grafana.yaml" \
+  --region "$REGION"
 
 GRAFANA_ECR_URI=$(aws cloudformation describe-stacks \
   --stack-name iot-ecr-grafana \
@@ -201,30 +199,38 @@ GRAFANA_ECR_URI=$(aws cloudformation describe-stacks \
 # 8️⃣ BUILD & PUSH IMAGES
 ############################################
 echo "🐳 Build & Push Docker images..."
-aws ecr get-login-password --region $REGION | \
-  docker login --username AWS --password-stdin ${ECR_URI%/*}
+aws ecr get-login-password --region "$REGION" | \
+  docker login --username AWS --password-stdin "${ECR_URI%/*}"
 
-docker build -t iot-gateway -f backend/Dockerfile backend
-docker tag iot-gateway:latest $ECR_URI:latest
-docker push $ECR_URI:latest
+docker build -t iot-gateway backend
+docker tag iot-gateway:latest "$ECR_URI:latest"
+docker push "$ECR_URI:latest"
 
-docker build -t grafana -f grafana/Dockerfile grafana
-docker tag grafana:latest $GRAFANA_ECR_URI:latest
-docker push $GRAFANA_ECR_URI:latest
+docker build -t grafana grafana
+docker tag grafana:latest "$GRAFANA_ECR_URI:latest"
+docker push "$GRAFANA_ECR_URI:latest"
 
 ############################################
 # 9️⃣ ECS CLUSTER & TASK DEFINITIONS
 ############################################
-echo "🚢 Deploy ECS Cluster & Task Definition..."
+GRAFANA_SECRET_ARN=$(aws secretsmanager describe-secret \
+  --secret-id "$POSTGRES_SECRET_NAME" \
+  --query ARN \
+  --output text \
+  --region "$REGION")
+
+echo "🚢 Deploy ECS Cluster..."
 aws cloudformation deploy \
   --stack-name iot-ecs-cluster \
-  --template-file $CF_DIR/ecs-cluster.yaml \
+  --template-file "$CF_DIR/ecs-cluster.yaml" \
   --parameter-overrides \
-    EcrImageUri=$ECR_URI:latest \
-    GrafanaEcrUri=$GRAFANA_ECR_URI:latest \
-    ApiEndpoint=$API_ENDPOINT \
+    EcrImageUri="$ECR_URI:latest" \
+    GrafanaEcrUri="$GRAFANA_ECR_URI:latest" \
+    ApiEndpoint="$API_ENDPOINT" \
+    DBEndpoint="$DB_HOST" \
+    GrafanaSecretsArn="$GRAFANA_SECRET_ARN" \
   --capabilities CAPABILITY_NAMED_IAM \
-  --region $REGION
+  --region "$REGION"
 
 CLUSTER_ARN=$(aws cloudformation describe-stacks \
   --stack-name iot-ecs-cluster \
@@ -242,17 +248,17 @@ GATEWAY_TASK_DEFINITION_ARN=$(aws cloudformation describe-stacks \
   --output text)
 
 ############################################
-# 🔟 ALB + TARGET GROUP GRAFANA
+# 🔟 ALB GRAFANA
 ############################################
 echo "🛣 Deploy ALB Grafana..."
 aws cloudformation deploy \
   --stack-name iot-alb-grafana \
-  --template-file $CF_DIR/alb-grafana.yaml \
+  --template-file "$CF_DIR/alb-grafana.yaml" \
   --parameter-overrides \
-    VpcId=$VPC_ID \
-    PublicSubnets=$PUBLIC_SUBNETS \
-    AlbSG=$ALB_SG \
-  --region $REGION
+    VpcId="$VPC_ID" \
+    PublicSubnets="$PUBLIC_SUBNETS" \
+    AlbSG="$ALB_SG" \
+  --region "$REGION"
 
 ALB_TARGET_GROUP_ARN=$(aws cloudformation describe-stacks \
   --stack-name iot-alb-grafana \
@@ -264,41 +270,33 @@ ALB_DNS=$(aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs[?OutputKey=='AlbDnsName'].OutputValue" \
   --output text)
 
-if [ -z "$ALB_TARGET_GROUP_ARN" ]; then
-  echo "❌ ERROR: No se pudo obtener TargetGroupArn"
-  exit 1
-fi
-
 ############################################
-# 🔟 ECS SERVICE Gateway 
+# 1️⃣1️⃣ ECS SERVICES
 ############################################
-echo "🚀 Deploy ECS Service Gateway..."
+echo "🚀 Deploy ECS Gateway Service..."
 aws cloudformation deploy \
   --stack-name iot-ecs-service \
-  --template-file $CF_DIR/ecs-gateway-service.yaml \
+  --template-file "$CF_DIR/ecs-gateway-service.yaml" \
   --parameter-overrides \
-    ClusterArn=$CLUSTER_ARN \
-    TaskDefinitionArn=$GATEWAY_TASK_DEFINITION_ARN \
-    PrivateAppSubnets=$PRIVATE_APP_SUBNETS \
-    GatewaySG=$GATEWAY_IOT_SG \
+    ClusterArn="$CLUSTER_ARN" \
+    TaskDefinitionArn="$GATEWAY_TASK_DEFINITION_ARN" \
+    PrivateAppSubnets="$PRIVATE_APP_SUBNETS" \
+    GatewaySG="$GATEWAY_IOT_SG" \
   --capabilities CAPABILITY_NAMED_IAM \
-  --region $REGION
+  --region "$REGION"
 
-############################################
-# 1️⃣1️⃣ ECS SERVICE Grafana
-############################################
-echo "🚀 Deploy ECS Service Grafana..."
+echo "🚀 Deploy ECS Grafana Service..."
 aws cloudformation deploy \
   --stack-name iot-ecs-grafana-service \
-  --template-file $CF_DIR/ecs-grafana-service.yaml \
+  --template-file "$CF_DIR/ecs-grafana-service.yaml" \
   --parameter-overrides \
-    ClusterArn=$CLUSTER_ARN \
-    TaskDefinitionArn=$GRAFANA_TASK_DEFINITION_ARN \
-    PrivateAppSubnets=$PRIVATE_APP_SUBNETS \
-    GrafanaSG=$GRAFANA_SG \
-    TargetGroupArn=$ALB_TARGET_GROUP_ARN \
+    ClusterArn="$CLUSTER_ARN" \
+    TaskDefinitionArn="$GRAFANA_TASK_DEFINITION_ARN" \
+    PrivateAppSubnets="$PRIVATE_APP_SUBNETS" \
+    GrafanaSG="$GRAFANA_SG" \
+    TargetGroupArn="$ALB_TARGET_GROUP_ARN" \
   --capabilities CAPABILITY_NAMED_IAM \
-  --region $REGION
+  --region "$REGION"
 
 ############################################
 # FINAL

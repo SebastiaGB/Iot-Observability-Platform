@@ -1,15 +1,32 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: ECS Cluster + Tasks + IAM Roles + LogGroups for IoT Gateway & Grafana
 
+############################
+# Parameters
+############################
 Parameters:
   EcrImageUri:
     Type: String
+
   GrafanaEcrUri:
     Type: String
+
   ApiEndpoint:
     Type: String
 
+  DBEndpoint:
+    Type: String
+    Description: RDS endpoint (output del stack iot-rds)
+
+  GrafanaSecretsArn:
+    Type: String
+    Description: ARN del secret iot/grafana/credentials
+
+############################
+# Resources
+############################
 Resources:
+
   ############################
   # CloudWatch Log Groups
   ############################
@@ -49,6 +66,15 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: ReadGrafanaSecrets
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref GrafanaSecretsArn
 
   ############################
   # IAM Role for Grafana Task (SNS)
@@ -76,7 +102,7 @@ Resources:
                   - arn:aws:sns:us-east-1:132502993836:grafana-sns
 
   ############################
-  # ECS Task Definition Gateway
+  # ECS Task Definition - Gateway
   ############################
   GatewayIotDef:
     Type: AWS::ECS::TaskDefinition
@@ -89,11 +115,11 @@ Resources:
       Memory: '1024'
       ExecutionRoleArn: !GetAtt EcsTaskExecutionRole.Arn
       ContainerDefinitions:
-        - Name: gatewayiotdef
+        - Name: gatewayiot
           Image: !Ref EcrImageUri
           Essential: true
           PortMappings:
-            - ContainerPort: 80
+            - ContainerPort: 8000
               Protocol: tcp
           Environment:
             - Name: API_URL
@@ -108,7 +134,7 @@ Resources:
               awslogs-stream-prefix: gatewayiot
 
   ############################
-  # ECS Task Definition Grafana
+  # ECS Task Definition - Grafana
   ############################
   GrafanaTaskDef:
     Type: AWS::ECS::TaskDefinition
@@ -120,7 +146,7 @@ Resources:
       Cpu: '512'
       Memory: '1024'
       ExecutionRoleArn: !GetAtt EcsTaskExecutionRole.Arn
-      TaskRoleArn: !GetAtt GrafanaTaskRole.Arn   # 👈 CLAVE PARA SNS
+      TaskRoleArn: !GetAtt GrafanaTaskRole.Arn
       ContainerDefinitions:
         - Name: grafana
           Image: !Ref GrafanaEcrUri
@@ -131,8 +157,13 @@ Resources:
           Environment:
             - Name: GF_SECURITY_ADMIN_USER
               Value: admin
+            - Name: POSTGRES_ENDPOINT
+              Value: !Ref DBEndpoint
+          Secrets:
             - Name: GF_SECURITY_ADMIN_PASSWORD
-              Value: admin123
+              ValueFrom: !Sub "${GrafanaSecretsArn}:grafana_admin_password::"
+            - Name: POSTGRES_PASSWORD
+              ValueFrom: !Sub "${GrafanaSecretsArn}:postgres_password::"
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -140,6 +171,9 @@ Resources:
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: grafana
 
+############################
+# Outputs
+############################
 Outputs:
   ClusterName:
     Description: ECS Cluster name
